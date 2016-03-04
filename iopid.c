@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include <unistd.h>
+#include <libgen.h>
 
 #define STATIC_LEN(str) (sizeof(str) - 1)
 
@@ -97,7 +98,7 @@ int main(int argc, char *argv[])
      int have_prev_io = 0;
      int n;
 
-     progname = argv[0];
+     progname = basename(argv[0]);
 
      if (argc != 3)
 	  goto err;
