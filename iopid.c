@@ -1,3 +1,9 @@
+/* iopid: print io stats for pid
+ *
+ * Copyright (C) 2016  Karol Lewandowski <lmctl@lmctl.net>
+ *
+ * License: GNU General Public License v2.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
