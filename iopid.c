@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <libgen.h>
+#include <inttypes.h>
 
 #define STATIC_LEN(str) (sizeof(str) - 1)
 
@@ -76,7 +77,7 @@ void io_parse_line(char *line, int len, uint64_t *io)
      } else
 	  abort();
 
-     sscanf(p, "%llu", &io[index]);
+     sscanf(p, "%" PRIu64, &io[index]);
 }
 
 void annotate_num(uint64_t n, char str[])
@@ -102,7 +103,7 @@ void annotate_num(uint64_t n, char str[])
      if (p)
 	  sprintf(str, "%-4.1f%s", num, p);
      else
-	  sprintf(str, "%-8lld", n);
+	  sprintf(str, "%-8" PRIu64, n);
 }
 
 void print_line(uint64_t *ioc, uint64_t *iop)
