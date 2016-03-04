@@ -9,62 +9,74 @@
 #include <stdint.h>
 #include <limits.h>
 #include <unistd.h>
+#include <string.h>
 #include <libgen.h>
 
 #define STATIC_LEN(str) (sizeof(str) - 1)
 
 char *progname;
 
-typedef struct proc_io {
-     uint64_t rchar;
-     uint64_t wchar;
-     uint64_t syscr;
-     uint64_t syscw;
-     uint64_t read_bytes;
-     uint64_t write_bytes;
-     uint64_t cancelled_write_bytes;
-} proc_io_t;
+enum {
+     INDEX_RCHAR = 0,
+     INDEX_WCHAR = 1,
+     INDEX_SYSCR = 2,
+     INDEX_SYSCW = 3,
+     INDEX_RBYTES = 4,
+     INDEX_WBYTES = 5,
+     INDEX_CANCELLED = 6,
+     _INDEX_MAX_SIZE,
+};
+
+static char *index_names[] = {
+     [INDEX_RCHAR] = "rchar",
+     [INDEX_WCHAR] = "wchar",
+     [INDEX_SYSCR] = "syscr",
+     [INDEX_SYSCW] = "syscw",
+     [INDEX_RBYTES] = "rbytes",
+     [INDEX_WBYTES] = "wbytes",
+     [INDEX_CANCELLED] ="cancelled"
+};
 
 void usage(void)
 {
      fprintf(stderr, "usage: %s PID INTERVAL\n", progname);
 }
 
-void io_parse_line(char *line, int len, proc_io_t *io)
+void io_parse_line(char *line, int len, uint64_t *io)
 {
      char *p = line;
-     uint64_t *pnum = 0;
+     int index;
 
      if (p[0] == 'c') {
 	  p += STATIC_LEN("cancelled_write_bytes: ");
-	  pnum = &io->cancelled_write_bytes;
+	  index = INDEX_CANCELLED;
      } else if (p[0] == 'r') {
 	  if (p[1] == 'c') {
 	       p += STATIC_LEN("rchar: ");
-	       pnum = &io->rchar;
+	       index = INDEX_RCHAR;
 	  } else {
 	       p += STATIC_LEN("read_bytes: ");
-	       pnum = &io->read_bytes;
+	       index = INDEX_RBYTES;
 	  }
      } else if (p[0] == 'w') {
 	  if (p[1] == 'c') {
 	       p += STATIC_LEN("wchar: ");
-	       pnum = &io->wchar;
+	       index = INDEX_WCHAR;
 	  } else {
 	       p += STATIC_LEN("write_bytes: ");
-	       pnum = &io->write_bytes;
+	       index = INDEX_WBYTES;
 	  }
      } else if (p[0] == 's') {
 	  if (p[4] == 'r')
-	       pnum = &io->syscr;
+	       index = INDEX_SYSCR;
 	  else
-	       pnum = &io->syscw;
+	       index = INDEX_SYSCW;
 
 	  p += STATIC_LEN("syscX: ");
      } else
 	  abort();
 
-     sscanf(p, "%llu", pnum);
+     sscanf(p, "%llu", &io[index]);
 }
 
 void annotate_num(uint64_t n, char str[])
@@ -93,15 +105,45 @@ void annotate_num(uint64_t n, char str[])
 	  sprintf(str, "%-8lld", n);
 }
 
+void print_line(uint64_t *ioc, uint64_t *iop)
+{
+     int i;
+
+     for (i = 0; i < _INDEX_MAX_SIZE; i++) {
+	  static char str[16];
+	  uint64_t n = iop ? ioc[i] - iop[i] : ioc[i];
+
+	  annotate_num(n, str);
+	  printf("%-8s ", str);
+     }
+     printf("\n");
+}
+
+static inline void draw_header(void)
+{
+     static int shown = 0;
+     int i;
+
+     if (shown)
+	  return;
+
+     for (i = 0; i < _INDEX_MAX_SIZE; i++)
+	  printf("%-8s ", index_names[i]);
+     printf("\n");
+
+     ++ shown;
+}
+
 int main(int argc, char *argv[])
 {
      int pid;
      int interval;
-     proc_io_t io[2];
+     uint64_t io[2][_INDEX_MAX_SIZE] = { [0] = {0, 0, 0, 0, 0, 0, 0} };
      int io_pos = 0;
      char path[PATH_MAX];
      char line[LINE_MAX];
-     int have_prev_io = 0;
+     uint64_t *iop = NULL; // previous entry
+     uint64_t *ioc;        // current
      int n;
 
      progname = basename(argv[0]);
@@ -120,7 +162,6 @@ int main(int argc, char *argv[])
 
      while (1) {
 	  char *p;
-	  proc_io_t *iop, *ioc;
 
 	  FILE *fp = fopen(path, "r");
 	  if (!fp) {
@@ -128,50 +169,18 @@ int main(int argc, char *argv[])
 	       exit(EXIT_FAILURE);
 	  }
 
-	  ioc = &io[io_pos];
-	  while (p = fgets(line, sizeof line, fp)) {
+	  ioc = &io[io_pos][0];
+	  memset(ioc, 0, _INDEX_MAX_SIZE*sizeof(io[0][0]));
+
+	  while (p = fgets(line, sizeof line, fp))
 	       io_parse_line(line, sizeof line, ioc);
-	  }
+
+
+	  draw_header();
+	  print_line(ioc, iop);
+
+	  iop = ioc;
 	  io_pos = (io_pos + 1) % 2;
-	  iop = &io[io_pos];
-
-	  if (have_prev_io) {
-	       uint64_t rbytes = ioc->read_bytes - iop->read_bytes;
-	       uint64_t wbytes = ioc->write_bytes - iop->write_bytes;
-	       uint64_t rchar = ioc->rchar - iop->rchar;
-	       uint64_t wchar = ioc->wchar - iop->wchar;
-	       uint64_t syscr = ioc->syscr - iop->syscr;
-	       uint64_t syscw = ioc->syscw - iop->syscw;
-	       uint64_t cancelled = ioc->cancelled_write_bytes - iop->cancelled_write_bytes;
-	       static char str_rbytes[16];
-	       static char str_wbytes[16];
-	       static char str_rchar[16];
-	       static char str_wchar[16];
-	       static char str_syscr[16];
-	       static char str_syscw[16];
-	       static char str_cancelled[16];
-
-	       annotate_num(rbytes, str_rbytes);
-	       annotate_num(wbytes, str_wbytes);
-	       annotate_num(rchar, str_rchar);
-	       annotate_num(wchar, str_wchar);
-	       annotate_num(syscr, str_syscr);
-	       annotate_num(syscw, str_syscw);
-	       annotate_num(cancelled, str_cancelled);
-
-	       printf("%-8s %-8s %-8s %-8s %-8s %-8s %-8s\n",
-		      str_rbytes,
-		      str_wbytes,
-		      str_rchar,
-		      str_wchar,
-		      str_syscr,
-		      str_syscw,
-		      str_cancelled);
-
-	  } else {
-	       printf("rbytes   wbytes   rchar    wchar    syscr    syscw    cancelled-wbytes\n");
-	       have_prev_io = 1;
-	  }
 
 	  sleep(interval);
      }
