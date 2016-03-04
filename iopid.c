@@ -175,6 +175,7 @@ int main(int argc, char *argv[])
 	  while (p = fgets(line, sizeof line, fp))
 	       io_parse_line(line, sizeof line, ioc);
 
+	  fclose(fp);
 
 	  draw_header();
 	  print_line(ioc, iop);
