@@ -12,10 +12,15 @@
 #include <string.h>
 #include <libgen.h>
 #include <inttypes.h>
+#include <sys/ioctl.h>
+#include <signal.h>
 
 #define STATIC_LEN(str) (sizeof(str) - 1)
 
 char *progname;
+
+int update_winch; // flag only
+int redraw_row;   // redraw header every this row
 
 enum {
      INDEX_RCHAR = 0,
@@ -135,6 +140,27 @@ static inline void draw_header(void)
      ++ shown;
 }
 
+void setup_winch(void)
+{
+     struct winsize ws;
+     int r;
+
+     r = ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+     if (r == -1)
+	  return;
+
+     redraw_row = ws.ws_row;
+
+     update_winch = 0;
+}
+
+void handle_winch(int signo)
+{
+     (void)signo;
+
+     ++ update_winch;
+}
+
 int main(int argc, char *argv[])
 {
      int pid;
@@ -161,6 +187,11 @@ int main(int argc, char *argv[])
      if (sizeof path == n)
 	  goto err; // no space for \0
 
+     if (isatty(STDOUT_FILENO)) {
+	  ++ update_winch;
+	  signal(SIGWINCH, handle_winch);
+     }
+
      while (1) {
 	  char *p;
 
@@ -177,6 +208,9 @@ int main(int argc, char *argv[])
 	       io_parse_line(line, sizeof line, ioc);
 
 	  fclose(fp);
+
+	  if (update_winch)
+	       setup_winch();
 
 	  draw_header();
 	  print_line(ioc, iop);
