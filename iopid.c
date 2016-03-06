@@ -125,19 +125,30 @@ void print_line(uint64_t *ioc, uint64_t *iop)
      printf("\n");
 }
 
-static inline void draw_header(void)
+static void __draw_header(void)
 {
-     static int shown = 0;
      int i;
-
-     if (shown)
-	  return;
 
      for (i = 0; i < _INDEX_MAX_SIZE; i++)
 	  printf("%-8s ", index_names[i]);
      printf("\n");
+}
 
-     ++ shown;
+static void draw_header(void)
+{
+     static int cur_row = -1;
+
+     ++ cur_row;
+
+     if (0 == cur_row)
+	  goto out;
+
+     if (!redraw_row || cur_row < redraw_row)
+	  return;
+
+out:
+     cur_row = 2; // 2 accounts header and data line
+     __draw_header();
 }
 
 void setup_winch(void)
